@@ -2,7 +2,7 @@
 
 1. Determining Nascent and Steady RNA States with ChromHMM 
 
-2. Nascent vs Total RNA DGE analysis
+2. Nascent Signal
 Use EdgeR to compute size factors per sample across TT- and Total RNA-Seq.
 
 Compute size factor normalised coverage in 200bp bins using fragment midpoints. 
