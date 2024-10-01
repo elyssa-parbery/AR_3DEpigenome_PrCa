@@ -9,7 +9,7 @@ https://github.com/BauerLab/ngsane/blob/9a5aac2de467e57dc13590249ba4d132e4518d67
 https://github.com/BauerLab/ngsane/blob/9a5aac2de467e57dc13590249ba4d132e4518d67/mods/bigwig.sh
 https://github.com/BauerLab/ngsane/blob/9a5aac2de467e57dc13590249ba4d132e4518d67/mods/macs2.sh
 
-
 2. Differential binding analysis with DiffBind.
+Rmd file including code for DBA and accompanying Html report with downstream QC.
 
 3. Scripts to used to produce publication Figures.
