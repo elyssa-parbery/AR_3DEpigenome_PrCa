@@ -1,0 +1,898 @@
+---
+title: "DHT Timecourse AR ChIP-Seq Analysis" 
+author: "Author: Elyssa Campbell"
+date: "Last update: `r format(Sys.time(), '%d %B, %Y')`" 
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    theme: united
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+This report includes a differential binding analysis (DBA) and genomic annotation of AR ChIP-Seq data sets in LNCaP cells that have been starved and subsequently treated with DHT for 4 different periods of time, including 30 minutes, 2 hours, 4 hours and 16 hours, or EtOH as a control.
+
+## Experimental design
+
+AR ChIP-Seq data was processed using the "ngsane" ChIP-Seq pipeline with default parameters.
+Input Bam files have been aligned to hg38, sorted and deduplicated with bowtie2 and samtools.
+Peak files were called with MACS2 and default parameters.
+
+***
+
+# Analysis
+
+## Load packages
+```{r, packages, eval=TRUE, message=FALSE, warning=FALSE}
+library(DiffBind)
+library(rgl)
+library(DESeq2)
+library(dplyr)
+library(tidyverse)
+library(rtracklayer)
+library(profileplyr)
+library(ChIPQC)
+library(VennDiagram)
+library(GenomicRanges)
+library(ChIPpeakAnno)
+library(colorspace)
+library(readr)
+library(knitr)
+library(magick)
+library(UpSetR)
+```
+
+***
+
+```{r load myData, include=FALSE}
+setwd("/Volumes/griw/Cancer-Epigenetics/Projects/LNCaP_VCaP_DHT_Hi-C/Elyssa_2021_analysis_and_integration")
+load("/Volumes/griw/Cancer-Epigenetics/Projects/LNCaP_VCaP_DHT_Hi-C/Elyssa_2021_analysis_and_integration/AR_ChIP_Analysis.RData")
+```
+
+## Load in data for DiffBind and make DBA object using samplesheet
+
+Load sample sheet from working directory
+```{r load_data, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#Load in sampleSheet
+#use full paths
+setwd("/Library/Frameworks/R.framework/Versions/4.1/Resources/library/DiffBind/extra")
+samples <- read.csv("AR_SampleSheet.csv")
+names(samples)
+samples
+```
+
+Make DBA object from sample sheet
+```{r make_DBA_object, eval=TRUE}
+##Create DBA from files and sample sheet 
+setwd("/Library/Frameworks/R.framework/Versions/4.1/Resources/library/DiffBind/extra")
+basedir <- system.file("/Users/elyssaparbery/external/ScratchGeneral/ngsane/projects/16.11.2020_LNCaP_Hg38_AR_ChIPSeq", package="DiffBind")
+AR_ChIP <- dba(sampleSheet = samples, dir=basedir)
+AR_ChIP
+```
+
+Plot raw correlation heatmap based on peak occupancy:
+```{r plot_raw_corr, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+##Correlation heatmap, using occupancy (peak caller score) data
+##Heatmap indicates raw data correlation between the location of peaks between samples
+par(mar = rep(2, 4))
+plot(AR_ChIP)
+```
+
+*** 
+
+## Retrieve overlaps in peaksets prior to DBA
+
+Report peaksets
+```{r report_peak_sets, eval=TRUE}
+#retrieve common peak sets before DBA
+AR_ChIP_replicate_consensus <- dba.peakset(AR_ChIP,consensus = -DBA_REPLICATE)
+AR_ChIP_DHT_Consensus_Peaks <- dba.peakset(AR_ChIP_replicate_consensus, 16:19, minOverlap = 4, bRetrieve = TRUE)
+AR_ChIP_EtOH_Consensus_Peaks <- dba.peakset(AR_ChIP_replicate_consensus, 20, bRetrieve = TRUE)
+AR_ChIP_DHT_05h_Peaks <- dba.peakset(AR_ChIP_replicate_consensus, 1:3, minOverlap = 3, bRetrieve = TRUE)
+AR_ChIP_DHT_2h_Peaks<- dba.peakset(AR_ChIP_replicate_consensus, 4:6, minOverlap = 3, bRetrieve = TRUE)
+AR_ChIP_DHT_4h_Peaks<- dba.peakset(AR_ChIP_replicate_consensus, 7:9, minOverlap = 3, bRetrieve = TRUE)
+AR_ChIP_DHT_16h_Peaks<- dba.peakset(AR_ChIP_replicate_consensus, 10:12, minOverlap = 3, bRetrieve = TRUE)
+
+```
+
+Visualise overlaps in raw input peaks across DHT time points:
+```{r, write_olap_files, echo=TRUE, eval=TRUE}
+#Calc. overlaps
+AR_ChIP_olap_all_Peaks <- findOverlapsOfPeaks(AR_ChIP_DHT_05h_Peaks, AR_ChIP_DHT_2h_Peaks, AR_ChIP_DHT_4h_Peaks, AR_ChIP_DHT_16h_Peaks, AR_ChIP_EtOH_Consensus_Peaks,  minoverlap=1)
+
+#write out files for each peakset
+setwd("/Volumes/griw/Cancer-Epigenetics/Projects/LNCaP_VCaP_DHT_Hi-C/Elyssa_2021_analysis_and_integration")
+write.table(AR_ChIP_DHT_Consensus_Peaks, file="AR_ChIP_DHT_Consensus_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(AR_ChIP_EtOH_Consensus_Peaks, file="AR_ChIP_EtOH_Consensus_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(AR_ChIP_DHT_05h_Peaks, file="AR_ChIP_DHT_05h_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(AR_ChIP_DHT_2h_Peaks, file="AR_ChIP_DHT_2h_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(AR_ChIP_DHT_4h_Peaks, file="AR_ChIP_DHT_4h_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(AR_ChIP_DHT_16h_Peaks, file="AR_ChIP_DHT_16h_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+
+```
+
+## Draw venn diagrams of overlaps
+
+Overlaps in AR peaks across DHT time points:
+```{r, venn_plot_DHT, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#draw venn diagrams
+DHT_olap_Peaks <- makeVennDiagram(list(AR_ChIP_DHT_05h_Peaks, AR_ChIP_DHT_2h_Peaks, AR_ChIP_DHT_4h_Peaks, AR_ChIP_DHT_16h_Peaks), NameOfPeaks=c("DHT_30mins", "DHT_2hrs", "DHT_4hrs", "DHT_16hrs"),
+                totalTest=50000, 
+                fill=c("#FFC5D0", "#E2D4A8", "#A8E1BF", "#A4DDEF"), # circle fill color
+                col=c("#E16A86", "#AA9000", "#00AA5A", "#00A6CA"), #circle border color
+                cat.col=c("#E16A86", "#AA9000", "#00AA5A", "#00A6CA"))
+```
+
+Overlaps in AR peaks across DHT time points including EtOH control:
+```{r, venn_plot_DHTvsEtOH, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+AR_all_Peaks <- makeVennDiagram(list(AR_ChIP_DHT_05h_Peaks, AR_ChIP_DHT_2h_Peaks, AR_ChIP_DHT_4h_Peaks, AR_ChIP_DHT_16h_Peaks, AR_ChIP_EtOH_Consensus_Peaks), NameOfPeaks=c("DHT_30mins", "DHT_2hrs", "DHT_4hrs", "DHT_16hrs", "EtOH"),
+                                totalTest=100000, 
+                                fill=c("#FFC5D0", "#E2D4A8", "#A8E1BF", "#A4DDEF", "#E4CBF9"), # circle fill color
+                                col=c("#E16A86", "#AA9000", "#00AA5A", "#00A6CA", "#B675E0"), #circle border color
+                                cat.col=c("#E16A86", "#AA9000", "#00AA5A", "#00A6CA", "#B675E0"))
+```
+
+Overlaps in AR peaks across DHT consensus peaks and EtOH consensus peaks:
+```{r, venn_plot_consensus_DHTvsEtOH, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+AR_DHTvsEtOH_Peaks <- makeVennDiagram(list(AR_ChIP_DHT_Consensus_Peaks, AR_ChIP_EtOH_Consensus_Peaks), NameOfPeaks=c("DHT", "EtOH"),
+                                totalTest=100000, 
+                                fill=c("#FFC5D0", "#E4CBF9"), # circle fill color
+                                col=c("#E16A86", "#B675E0"), #circle border color
+                                cat.col=c("#E16A86", "#B675E0"))
+```
+
+***
+
+## Perform Differential Binding Analysis (DBA)
+
+### Count reads in peaks within DBA
+
+Using the parameter "minOverlap=2" will include peaks that are present in at least 2 replicates per condition and treatment.
+This will exclude any unique peaks, likely to be background noise.
+
+```{r, count_DBA, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
+#Count reads in peaks
+#Create correlation heatmap, using affinity (read count) data
+#Heatmap indicates correlation between the location and signal strength of peaks (number of reads/read depth) between samples
+#Taking peaks that are found in 2 of 3 replicates
+AR_ChIP_Counts <- dba.count(AR_ChIP, minOverlap = 2)
+AR_ChIP_Counts
+par(mar = rep(2, 4))
+plot(AR_ChIP_Counts)
+```
+
+### Plot profiles before analysis
+
+Plot the average profile of AR signal over the peaks that have been considered in this DBA:
+```{r, echo=FALSE, eval=TRUE}
+AR_ChIP_Counts$config$RunParallel <- TRUE
+preanalysis_profiles <- dba.plotProfile(AR_ChIP_Counts)
+dba.plotProfile(preanalysis_profiles)
+```
+
+*** 
+
+### DESeq2 RLE normalisation
+
+Perform normalisation using a DESeq2 calculation of the geometric mean per peak across each sample. 
+See the following links for more details:
+https://bioconductor.org/packages/devel/bioc/vignettes/DiffBind/inst/doc/DiffBind.pdf
+https://genomebiology.biomedcentral.com/articles/10.1186/s13059-014-0550-8
+
+```{r, normalisation}
+AR_ChIP_Counts_Norm <-  dba.normalize(AR_ChIP_Counts, normalize=DBA_NORM_NATIVE)
+```
+
+### Create diferential analysis by defining contrast design
+
+Contrast by Treatment will contrast each DHT time point and EtOH.
+
+```{r, contrast_design, message=FALSE, warning=FALSE}
+#Create Diferential analysis by defining contrast design for TREATMENT
+AR_ChIP_Treatment <- dba.contrast(AR_ChIP_Counts_Norm, categories = DBA_TREATMENT, minMembers = 2)
+AR_ChIP_Treatment
+```
+
+### Run DBA based on the contrast designs defined above
+
+The parameter "bBlacklist=TRUE" will detect the genome alignment and remove any peaks within blacklisted unmappable regions from the DBA.
+
+```{r, DBA_analysis, message=FALSE, warning=FALSE}
+#run DBA analysis
+AR_ChIP_Treatment_DBA <- dba.analyze(AR_ChIP_Treatment, bBlacklist=TRUE)
+AR_ChIP_Treatment_DBA
+```
+
+### Visualise DBA correlation heatmap
+
+Correlation heatmap for each AR ChIP Treatment contrast:
+
+DBA of 30 mins DHT vs EtOH:
+```{r, 30min_DBA, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+op <- par(oma=c(5,7,1,1))
+dev.off()
+par(mar = rep(2, 4))
+plot(AR_ChIP_Treatment_DBA, contrast=4)
+
+```
+
+DBA of 2hrs DHT vs EtOH:
+```{r, 2hrs_DBA, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+op <- par(oma=c(5,7,1,1))
+dev.off()
+par(mar = rep(2, 4))
+plot(AR_ChIP_Treatment_DBA, contrast=7)
+
+```
+
+DBA of 4hrs DHT vs EtOH:
+```{r, 4hrs_DBA, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+op <- par(oma=c(5,7,1,1))
+dev.off()
+par(mar = rep(2, 4))
+plot(AR_ChIP_Treatment_DBA, contrast=9)
+
+```
+
+DBA of EtOH vs 16 hrs:
+Note: this will have negative values for peaks gained in 16hrs DHT
+when using dba.report include "bFlip=TRUE" to reorder the contrast so that DHT gained peaks have positive values.
+```{r, 16hrs_DBA, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+op <- par(oma=c(5,7,1,1))
+dev.off()
+par(mar = rep(2, 4))
+plot(AR_ChIP_Treatment_DBA, contrast=10)
+
+```
+
+### Plot profiles following DBA analysis
+
+DHT Treatment DBA average profile over peaks called as gained and lost (in DHT treatment compared to EtOH):
+```{r, DHT_profile, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#plot profiles after DBA analysis all DHT time points vs EtOH AR peaks
+DHT_DBA_all_contrasts <- dba.report(AR_ChIP_Treatment_DBA, contrast=c(4, 7, 9, 10), bDB=TRUE)
+DHTDBAanalysis_profiles <- dba.plotProfile(AR_ChIP_Treatment_DBA, sites=DHT_DBA_all_contrasts)
+dba.plotProfile(DHTDBAanalysis_profiles, raster_quality = 5)
+
+```
+
+30 minute DHT Treatment DBA average profile over peaks called as gained and lost (in DHT treatment compared to EtOH):
+```{r, 05hrs_profile, eval=TRUE, message=FALSE, warning=FALSE, echo=FALSE}
+#plot profiles after DBA analysis 30 minutes DHT time point vs EtOH AR peaks
+DHT_05hrs <- dba.report(AR_ChIP_Treatment_DBA, contrast=4,  bDB=TRUE)
+DBA_05hrs_analysis_profiles <- dba.plotProfile(AR_ChIP_Treatment_DBA, sites=DHT_05hrs)
+dba.plotProfile(DBA_05hrs_analysis_profiles)
+
+```
+
+2 hour DHT Treatment DBA average profile over peaks called as gained and lost (in DHT treatment compared to EtOH):
+```{r, 2hrs_profile, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#plot profiles after DBA analysis 2 hour DHT time point vs EtOH AR peaks
+DHT_2hrs <- dba.report(AR_ChIP_Treatment_DBA, contrast=7,  bDB=TRUE)
+DBA_2hrs_analysis_profiles <- dba.plotProfile(AR_ChIP_Treatment_DBA, sites=DHT_2hrs)
+dba.plotProfile(DBA_2hrs_analysis_profiles)
+
+```
+
+4 hour DHT Treatment DBA average profile over peaks called as gained and lost (in DHT treatment compared to EtOH):
+```{r, 4hrs_profile, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#plot profiles after DBA analysis 4 hour DHT time point vs EtOH AR peaks
+DHT_4hrs <- dba.report(AR_ChIP_Treatment_DBA, contrast=9,  bDB=TRUE)
+DBA_4hrs_analysis_profiles <- dba.plotProfile(AR_ChIP_Treatment_DBA, sites=DHT_4hrs)
+dba.plotProfile(DBA_4hrs_analysis_profiles)
+
+```
+
+16 hour DHT Treatment DBA average profile over peaks called as gained and lost (in DHT treatment compared to EtOH):
+```{r, 16hrs_profile, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#plot profiles after DBA analysis 16 hour DHT time point vs EtOH AR peaks
+DHT_16hrs <- dba.report(AR_ChIP_Treatment_DBA, contrast=10,  bDB=TRUE)
+DBA_16hrs_analysis_profiles <- dba.plotProfile(AR_ChIP_Treatment_DBA, sites=DHT_16hrs)
+dba.plotProfile(DBA_16hrs_analysis_profiles)
+
+```
+
+### Retrieve differentially bound sites (gained and lost) for each contrast
+
+```{r, retrieve_DBA_contrast, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+#30 mins DHT DBA
+DHT_05hrs_DBA <- dba.report(AR_ChIP_Treatment_DBA, contrast = 4)
+DHT_05hrs_DBA
+#2hrs DHT DBA
+DHT_2hrs_DBA <- dba.report(AR_ChIP_Treatment_DBA, contrast = 7)
+DHT_2hrs_DBA
+#4hrs DHT DBA
+DHT_4hrs_DBA <- dba.report(AR_ChIP_Treatment_DBA, contrast = 9)
+DHT_4hrs_DBA
+#16hrs DHT DBA
+DHT_16hrs_DBA <- dba.report(AR_ChIP_Treatment_DBA, contrast = 10, bFlip = TRUE)
+DHT_16hrs_DBA
+```
+
+### Report Lost and gained peaks
+
+Use the 'dba.report' function to pull out the differential lost (enriched in DHT treatment) and gained peaks (enriched in EtOH), as well as, non-differential constitutive AR binding sites (equally enriched in DHT treatment):
+DBA 30 mins DHT vs EtOH:
+```{r, retrieve_DBA_sites_05hrs, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+DHT_05hrs_DBA_Gained_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 4, bGain=TRUE, DataType = DBA_DATA_GRANGES)
+DHT_05hrs_DBA_Lost_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 4, bLoss=TRUE, DataType = DBA_DATA_GRANGES)
+DHT_05hrs_DBA_Constitutive_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 4, bNotDB=TRUE , DataType = DBA_DATA_GRANGES)
+
+DHT_05hrs_DBA_Gained_AR_Peaks <- dba.peakset(DHT_05hrs_DBA_Gained_AR, 2, bRetrieve = TRUE)
+DHT_05hrs_DBA_Lost_AR_Peaks <- dba.peakset(DHT_05hrs_DBA_Lost_AR, 2, bRetrieve = TRUE)
+DHT_05hrs_DBA_Constitutive_AR_Peaks <- dba.peakset(DHT_05hrs_DBA_Constitutive_AR, 1, bRetrieve = TRUE)
+
+#write out DBA peakset files
+setwd("/Volumes/griw/Cancer-Epigenetics/Projects/LNCaP_VCaP_DHT_Hi-C/Elyssa_2021_analysis_and_integration/DBA_Peaks")
+write.table(DHT_05hrs_DBA, file="DHT_05hrsvsEtOH_DBA_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_05hrs_DBA_Gained_AR_Peaks, file="DHT_05hrs_DBA_Gained_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_05hrs_DBA_Lost_AR_Peaks, file="DHT_05hrs_DBA_Lost_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_05hrs_DBA_Constitutive_AR_Peaks, file="DHT_05hrs_DBA_Constitutive_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+
+
+```
+
+DBA 2hrs DHT vs EtOH:
+```{r, retrieve_DBA_sites_2hrs, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+DHT_2hrs_DBA_Gained_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 7, bGain=TRUE, DataType = DBA_DATA_GRANGES)
+DHT_2hrs_DBA_Lost_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 7, bLoss=TRUE, DataType = DBA_DATA_GRANGES)
+DHT_2hrs_DBA_Constitutive_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 7, bNotDB=TRUE , DataType = DBA_DATA_GRANGES)
+
+DHT_2hrs_DBA_Gained_AR_Peaks <- dba.peakset(DHT_2hrs_DBA_Gained_AR, 2, bRetrieve = TRUE)
+#DHT_2hrs_DBA_Lost_AR_Peaks <- No DB Lost peaks
+DHT_2hrs_DBA_Constitutive_AR_Peaks <- dba.peakset(DHT_2hrs_DBA_Constitutive_AR, 1, bRetrieve = TRUE)
+
+#write out DBA peakset files
+setwd("/Volumes/griw/Cancer-Epigenetics/Projects/LNCaP_VCaP_DHT_Hi-C/Elyssa_2021_analysis_and_integration/DBA_Peaks")
+write.table(DHT_2hrs_DBA, file="DHT_2hrsvsEtOH_DBA_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_2hrs_DBA_Gained_AR_Peaks, file="DHT_2hrs_DBA_Gained_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_2hrs_DBA_Constitutive_AR_Peaks, file="DHT_2hrs_DBA_Constitutive_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+
+```
+
+DBA 4hrs DHT vs EtOH:
+```{r, retrieve_DBA_sites_4hrs, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+DHT_4hrs_DBA_Gained_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 9, bGain=TRUE, DataType = DBA_DATA_GRANGES)
+DHT_4hrs_DBA_Lost_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 9, bLoss=TRUE, DataType = DBA_DATA_GRANGES)
+DHT_4hrs_DBA_Constitutive_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 9, bNotDB=TRUE , DataType = DBA_DATA_GRANGES)
+
+DHT_4hrs_DBA_Gained_AR_Peaks <- dba.peakset(DHT_4hrs_DBA_Gained_AR, 2, bRetrieve = TRUE)
+DHT_4hrs_DBA_Lost_AR_Peaks <- dba.peakset(DHT_4hrs_DBA_Lost_AR, 2, bRetrieve = TRUE)
+DHT_4hrs_DBA_Constitutive_AR_Peaks <- dba.peakset(DHT_4hrs_DBA_Constitutive_AR, 1, bRetrieve = TRUE)
+
+#write out DBA peakset files
+setwd("/Volumes/griw/Cancer-Epigenetics/Projects/LNCaP_VCaP_DHT_Hi-C/Elyssa_2021_analysis_and_integration/DBA_Peaks")
+write.table(DHT_4hrs_DBA, file="DHT_4hrsvsEtOH_DBA_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_4hrs_DBA_Gained_AR_Peaks, file="DHT_4hrs_DBA_Gained_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_4hrs_DBA_Lost_AR_Peaks, file="DHT_4hrs_DBA_Lost_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_4hrs_DBA_Constitutive_AR_Peaks, file="DHT_4hrs_DBA_Constitutive_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+
+```
+
+DBA 16hrs DHT vs EtOH:
+```{r, retrieve_DBA_sites_16hrs, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+DHT_16hrs_DBA_Gained_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 10, bFlip = TRUE, bGain=TRUE, DataType = DBA_DATA_GRANGES)
+DHT_16hrs_DBA_Lost_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 10, bFlip = TRUE, bLoss=TRUE, DataType = DBA_DATA_GRANGES)
+DHT_16hrs_DBA_Constitutive_AR <- dba.report(AR_ChIP_Treatment_DBA, contrast = 10, bFlip = TRUE, bNotDB=TRUE , DataType = DBA_DATA_GRANGES)
+
+DHT_16hrs_DBA_Gained_AR_Peaks <- dba.peakset(DHT_16hrs_DBA_Gained_AR, 2, bRetrieve = TRUE)
+DHT_16hrs_DBA_Lost_AR_Peaks <- dba.peakset(DHT_16hrs_DBA_Lost_AR, 2, bRetrieve = TRUE)
+DHT_16hrs_DBA_Constitutive_AR_Peaks <- dba.peakset(DHT_16hrs_DBA_Constitutive_AR, 1, bRetrieve = TRUE)
+
+#write out DBA peakset files
+setwd("/Volumes/griw/Cancer-Epigenetics/Projects/LNCaP_VCaP_DHT_Hi-C/Elyssa_2021_analysis_and_integration/DBA_Peaks")
+write.table(DHT_16hrs_DBA, file="DHT_16hrsvsEtOH_DBA_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_16hrs_DBA_Gained_AR_Peaks, file="DHT_16hrs_DBA_Gained_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_16hrs_DBA_Lost_AR_Peaks, file="DHT_16hrs_DBA_Lost_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(DHT_16hrs_DBA_Constitutive_AR_Peaks, file="DHT_16hrs_DBA_Constitutive_AR_Peaks.bed", quote=F, sep="\t", row.names=F, col.names=F)
+
+```
+
+
+***
+
+## Visualise Results
+
+### Draw PCA and venn diagrams of DBA
+
+PCA plot for all peak sets:
+```{r, PCA_plot_all, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#PCA plots for all peak sets
+dba.plotPCA(AR_ChIP_Treatment_DBA,label=DBA_TREATMENT)
+```
+
+Visualisation of AR Treatment DBA 30 mins DHT vs EtOH contrast:
+```{r, plot_30min_contrast, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#VennDiagram
+dba.plotVenn(AR_ChIP_Treatment_DBA, contrast=4, bDB=TRUE, bGain=TRUE, bLoss=TRUE, bAll=FALSE)
+#PCA
+dba.plotPCA(AR_ChIP_Treatment_DBA, contrast=4, label=DBA_ID)
+
+```
+
+Visualisation of AR Treatment DBA 2hrs DHT vs EtOH contrast:
+```{r, plot_2hrs_contrast, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#VennDiagram
+dba.plotVenn(AR_ChIP_Treatment_DBA, contrast=7, bDB=TRUE, bGain=TRUE, bLoss=FALSE, bAll=TRUE)
+#PCA
+dba.plotPCA(AR_ChIP_Treatment_DBA, contrast=7, label=DBA_ID)
+```
+
+Visualisation of AR Treatment DBA 4hrs DHT vs EtOH contrast:
+```{r, plot_4hrs_contrast, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#VennDiagram
+dba.plotVenn(AR_ChIP_Treatment_DBA, contrast=9, bDB=TRUE, bGain=TRUE, bLoss=TRUE, bAll=FALSE)
+#PCA
+dba.plotPCA(AR_ChIP_Treatment_DBA, contrast=9, label=DBA_ID)
+
+```
+
+Visualisation of AR Treatment DBA 16hrs DHT vs EtOH contrast:
+Remember the "Lost" peaks here are gained in 16hrs DHT vs EtOH due to the order of groups in the contrast
+```{r, plot_16hrs_contrast, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#VennDiagram
+dba.plotVenn(AR_ChIP_Treatment_DBA, contrast=10, bDB=TRUE, bGain=TRUE, bLoss=TRUE, bAll=FALSE)
+#PCA
+dba.plotPCA(AR_ChIP_Treatment_DBA, contrast=10, label=DBA_ID)
+```
+
+*** 
+
+## Comparison of AR DBA at each DHT timepoint
+
+### Average signal over differential sites
+
+These plots are including all differential sites, lost and gained, for each DHT time point vs EtOH.
+
+Plot the overlap between DBA identified peaks in each DHT time point and average signal in overlapping and uniquely identified peaks:
+```{r, olap_144hrs_72hrs_DBA, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+#Venn of olaps in DBA lost and Stable sites at 144 and 72 hrs
+repObj <- dba.report(AR_ChIP_Treatment_DBA, contrast=c(4, 7, 9, 10), bDB=TRUE)
+overlaps <- dba.plotVenn(repObj, repObj$masks$DB)
+names(overlaps) <- c("only_DBA_05hrs", "only_DBA_2hrs", "only_DBA_4hrs", "only_DBA_16hrs", "05_and2hrs", "05_and4hrs", "05_and16hrs", "2_and4hrs", "2_and16hrs", "4_and16hrs", "not_05hrs", "not_2hrs", "not_4hrs", "not_16hrs", "Common")
+profiles <- dba.plotProfile(AR_ChIP_Treatment_DBA, sites=overlaps, samples=list(AR_ChIP_Treatment_DBA$masks$DHT_30min, AR_ChIP_Treatment_DBA$masks$DHT_2hrs, AR_ChIP_Treatment_DBA$masks$DHT_4hrs, AR_ChIP_Treatment_DBA$masks$DHT_16hrs))
+#Enriched heatmap
+library(profileplyr)
+generateEnrichedHeatmap(profiles, include_group_annotation = TRUE, extra_annotation_columns = NULL)
+
+```
+
+### Overlaps in peaks identified as 'Lost', 'Gained' or 'Constitutive' per timepoint
+
+Overlapping sites from the DBA peaks called lost, gained and constitutive  at each DHT time point:
+```{r, Venn_Gained_DBA, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+#Venn of olap in DBA sites at each DHT time point
+library(ChIPpeakAnno)
+#Gained peaks in DHT treatments
+Gained_05hrs.tbl <- as_tibble(DHT_05hrs_DBA_Gained_AR_Peaks)
+Gained_05hrs.tbl <- Gained_05hrs.tbl %>%
+rename(chrom="seqnames", score="Score")
+Gained_05hrs <- makeGRangesFromDataFrame(Gained_05hrs.tbl)
+
+Gained_2hrs.tbl <- as_tibble(DHT_2hrs_DBA_Gained_AR_Peaks)
+Gained_2hrs.tbl <- Gained_2hrs.tbl %>%
+rename(chrom="seqnames", score="Score")
+Gained_2hrs <- makeGRangesFromDataFrame(Gained_2hrs.tbl)
+
+Gained_4hrs.tbl <- as_tibble(DHT_4hrs_DBA_Gained_AR_Peaks)
+Gained_4hrs.tbl <- Gained_4hrs.tbl %>%
+rename(chrom="seqnames", score="Score")
+Gained_4hrs <- makeGRangesFromDataFrame(Gained_4hrs.tbl)
+
+Gained_16hrs.tbl <- as_tibble(DHT_16hrs_DBA_Gained_AR_Peaks)
+Gained_16hrs.tbl <- Gained_16hrs.tbl %>%
+rename(chrom="seqnames", score="Score")
+Gained_16hrs <- makeGRangesFromDataFrame(Gained_16hrs.tbl)
+
+#Constituitive peaks shared between EtOH and DHT treatments
+Const_05hrs.tbl <- DHT_05hrs_DBA_Constitutive_AR_Peaks
+Const_05hrs.tbl <- Const_05hrs.tbl %>%
+rename(chrom="seqnames", score="Score")
+Const_05hrs <- makeGRangesFromDataFrame(Const_05hrs.tbl)
+
+Const_2hrs.tbl <- DHT_2hrs_DBA_Constitutive_AR_Peaks
+Const_2hrs.tbl <- Const_2hrs.tbl %>%
+rename(chrom="seqnames", score="Score")
+Const_2hrs <- makeGRangesFromDataFrame(Const_2hrs.tbl)
+
+Const_4hrs.tbl <- DHT_4hrs_DBA_Constitutive_AR_Peaks
+Const_4hrs.tbl <- Const_4hrs.tbl %>%
+rename(chrom="seqnames", score="Score")
+Const_4hrs <- makeGRangesFromDataFrame(Const_4hrs.tbl)
+
+Const_16hrs.tbl <- DHT_16hrs_DBA_Constitutive_AR_Peaks
+Const_16hrs.tbl <- Const_16hrs.tbl %>%
+rename(chrom="seqnames", score="Score")
+Const_16hrs <- makeGRangesFromDataFrame(Const_16hrs.tbl)
+
+DHT_DBA_Gained_olaps <- findOverlapsOfPeaks(Gained_05hrs, Gained_2hrs, Gained_4hrs, Gained_16hrs, minoverlap=1)
+DHT_DBA_Gained_Venn <- makeVennDiagram(list(Gained_05hrs, Gained_2hrs, Gained_4hrs, Gained_16hrs), NameOfPeaks=c("Gained_05hrs", "Gained_2hrs", "Gained_4hrs", "Gained_16hrs"),
+                                       totalTest=100000, fill=c("#FFC5D0", "#E2D4A8", "#A8E1BF", "#A4DDEF"),
+                                       col=c("#E16A86", "#AA9000", "#00AA5A", "#00A6CA"),
+                                       cat.col=c("#E16A86", "#AA9000", "#00AA5A", "#00A6CA"))
+
+```
+
+
+```{r, Venn_Const_DBA, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+DHT_DBA_Const_olaps <- findOverlapsOfPeaks(Const_05hrs, Const_2hrs, Const_4hrs, Const_16hrs, minoverlap=1)
+
+DHT_DBA_Const_olaps <- makeVennDiagram(list(Const_05hrs, Const_2hrs, Const_4hrs, Const_16hrs), NameOfPeaks=c("Const_05hrs", "Const_2hrs", "Const_4hrs", "Const_16hrs"),
+                                totalTest=100000, 
+                                fill=c("#FFC5D0", "#E2D4A8", "#A8E1BF", "#A4DDEF"), # circle fill color
+                                col=c("#E16A86", "#AA9000", "#00AA5A", "#00A6CA"), #circle border color
+                                cat.col=c("#E16A86", "#AA9000", "#00AA5A", "#00A6CA"))
+```
+
+
+#### Retrieve consensus 'Gained' or 'Constitutive' peaks overlapping at each time point
+```{r, DBA_Consensus, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE}
+
+AR_consensus_DHT_Gained <- DHT_DBA_Gained_olaps[["peaklist"]][["Gained_05hrs///Gained_2hrs///Gained_4hrs///Gained_16hrs"]]
+AR_consensus_DHT_Const <- DHT_DBA_Const_olaps[["peaklist"]][["Const_05hrs///Const_2hrs///Const_4hrs///Const_16hrs"]]
+
+setwd("/Volumes/griw/Cancer-Epigenetics/Projects/LNCaP_VCaP_DHT_Hi-C/Elyssa_2021_analysis_and_integration")
+write.table(AR_consensus_DHT_Gained, file="AR_consensus_DHT_Gained.bed", quote=F, sep="\t", row.names=F, col.names=F)
+write.table(AR_consensus_DHT_Const, file="AR_consensus_DHT_Const.bed", quote=F, sep="\t", row.names=F, col.names=F)
+```
+
+### Upset plots
+
+```{r, reshape_data_upset}
+#DataWrangling
+library(GenomicRanges)
+library(rtracklayer)
+#make one common set of gained AR peaks from all granges (treatment compared to EtOH)
+
+all_Gained_AR_Peaks <- GRangesList("Gained_05hrs"=Gained_05hrs, "Gained_2hrs"=Gained_2hrs, "Gained_4hrs"=Gained_4hrs, "Gained_16hrs"=Gained_16hrs)
+Merged_Gained_AR_Peaks <- unlist(as(all_Gained_AR_Peaks, "GRangesList"), use.names = FALSE)
+
+gr.1 <- Gained_05hrs
+gr.2 <- Gained_2hrs
+gr.3 <- Gained_4hrs
+gr.4 <- Gained_16hrs
+
+base <- Merged_Gained_AR_Peaks
+
+z <- matrix(0,length(base),4)
+z[subjectHits(findOverlaps(gr.1, base)),1] <- 1
+z[subjectHits(findOverlaps(gr.2, base)),2] <- 1
+z[subjectHits(findOverlaps(gr.3, base)),3] <- 1
+z[subjectHits(findOverlaps(gr.4, base)),4] <- 1
+colnames(z) <- paste0("gr.", 1:4)
+mcols(base) <- z
+base
+Olaps_DHT_Timepoints <- base
+Olaps_AR_DBA_DHT_Timecourse = as(base, "data.frame")
+Olaps_AR_DBA_DHT_Timecourse <- Olaps_AR_DBA_DHT_Timecourse %>% rename(AR_30min_DHT = gr.1)
+Olaps_AR_DBA_DHT_Timecourse <- Olaps_AR_DBA_DHT_Timecourse %>% rename(AR_2hrs_DHT = gr.2)
+Olaps_AR_DBA_DHT_Timecourse <- Olaps_AR_DBA_DHT_Timecourse %>% rename(AR_4hrs_DHT = gr.3)
+Olaps_AR_DBA_DHT_Timecourse <- Olaps_AR_DBA_DHT_Timecourse %>% rename(AR_16hrs_DHT = gr.4)
+write.csv(Olaps_AR_DBA_DHT_Timecourse, file = "Olaps_AR_DBA_DHT_Timecourse.csv")
+```
+
+```{r, simple_upset}
+#UpSet Plot
+upset(Olaps_AR_DBA_DHT_Timecourse, sets = c("AR_30min_DHT", "AR_2hrs_DHT", "AR_4hrs_DHT", "AR_16hrs_DHT"), sets.bar.color = "#56B4E9",
+      order.by = "freq", empty.intersections = "on")
+```
+
+```{r, complex_upset}
+#Complex UpSet
+library(ggplot2)
+library(ComplexUpset)
+
+upset(
+  Olaps_AR_DBA_DHT_Timecourse, c("AR_30min_DHT", "AR_2hrs_DHT", "AR_4hrs_DHT", "AR_16hrs_DHT"),
+  width_ratio=0.2,
+  group_by='sets',
+  queries=list(
+    upset_query(group='AR_30min_DHT', color='maroon'),
+    upset_query(group='AR_2hrs_DHT', color='blue'),
+    upset_query(group='AR_4hrs_DHT', color='orange'),
+    upset_query(group='AR_16hrs_DHT', color='purple'),
+    upset_query(set='AR_30min_DHT', fill='maroon'),
+    upset_query(set='AR_2hrs_DHT', fill='blue'),
+    upset_query(set='AR_4hrs_DHT', fill='orange'),
+    upset_query(set='AR_16hrs_DHT', fill='purple')
+  )
+)
+
+upset(Olaps_AR_DBA_DHT_Timecourse, c("AR_30min_DHT", "AR_2hrs_DHT", "AR_4hrs_DHT", "AR_16hrs_DHT"),
+      width_ratio=0.2,
+      queries=list(
+        upset_query(set='AR_30min_DHT', fill='maroon'),
+        upset_query(set='AR_2hrs_DHT', fill='blue'),
+        upset_query(set='AR_4hrs_DHT', fill='orange'),
+        upset_query(set='AR_16hrs_DHT', fill='purple')
+        )
+)
+```
+
+***
+
+## Annotation of Genomic Features
+
+### Load packages
+```{r, libraries, echo=TRUE, eval=TRUE, message=FALSE, warning=FALSE}
+library(ChIPpeakAnno)
+library(dplyr)
+library(tidyverse)
+library(EnsDb.Hsapiens.v86)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(reshape)
+library(readr)
+library(tibble)
+```
+
+### Annotation data for hg38
+
+wrangling data into the right format:
+```{r, load_hg38_anno, eval=TRUE}
+library(AnnotationHub)
+library(ensembldb)
+library(tibble)
+library(dplyr)
+ah <- AnnotationHub()
+HomoSapien.v95.Db <- query(ah, pattern = c("Homo sapiens", "EnsDb", 95))
+HomoSapien.v95.E.Db <- HomoSapien.v95.Db[[1]]
+hg38annoData <- genes(HomoSapien.v95.E.Db)
+hg38annoData[1:2]
+
+genes <- hg38annoData
+
+```
+
+### Visualise peak overlaps with genes
+```{r, gene_olap, echo=FALSE, eval=TRUE, warning=FALSE}
+library(ChIPpeakAnno)
+library(GenomeInfoDb)
+library(tidyverse)
+library(stringr)
+library(tibble)
+
+GENES <- as_tibble(genes[,1:3])
+GENES.tbl <- GENES
+
+genes.tbl <- 
+  mutate_at(GENES.tbl, "strand", str_replace, "[+]", "*")
+genes.tbl <- 
+  mutate_at(genes.tbl, "strand", str_replace, "-", "*")
+
+GENES <- makeGRangesFromDataFrame(genes.tbl, keep.extra.columns=TRUE)
+
+newnames <- paste0("chr",c(1:35, "Y", "X", "M"))
+names(newnames) <- paste0(c(1:35, "Y", "X", "M"))
+head(newnames)
+GENES <- renameSeqlevels(GENES,newnames)
+GENES
+
+GENES_unique <- unique(GENES)
+
+Gained_AR_genes_grl <- GRangesList("Genes"=GENES_unique, "Gained_05hrs"=Gained_05hrs, "Gained_2hrs"=Gained_2hrs, "Gained_4hrs"=Gained_4hrs, "Gained_16hrs"=Gained_16hrs)
+DBA_peaks_genes_olap <- findOverlaps(Gained_AR_genes_grl, minoverlap=1)
+
+DBA_peaks_genes_venn <- makeVennDiagram(Gained_AR_genes_grl, NameOfPeaks=c("Genes", "AR_30min_DHT", "AR_2hrs_DHT", "AR_4hrs_DHT", "AR_16hrs_DHT"),
+                                totalTest=100000, 
+                                fill=c("#FFC5D0", "#E2D4A8", "#A8E1BF", "#A4DDEF", "#E4CBF9"), # circle fill color
+                                col=c("#E16A86", "#AA9000", "#00AA5A", "#00A6CA", "#B675E0"), #circle border color
+                                cat.col=c("#E16A86", "#AA9000", "#00AA5A", "#00A6CA", "#B675E0"))
+
+```
+
+
+DHT 30 mins DBA Gained and Constitutive overlapping with genes:
+```{r, venn_genes_05hr}
+DBA_peaks_genes_venn <- makeVennDiagram(list(GENES_unique, Gained_05hrs, Const_05hrs), NameOfPeaks=c("Genes", "AR_30min_Gained", "AR_30min_Const"),
+                                totalTest=100000, 
+                                fill=c("#FFC5D0", "#A4DDEF", "#E4CBF9"), # circle fill color
+                                col=c("#E16A86", "#00A6CA", "#B675E0"), #circle border color
+                                cat.col=c("#E16A86", "#00A6CA", "#B675E0"))
+```
+
+
+DHT 2hrs DBA Gained and Constitutive overlapping with genes:
+```{r, venn_genes_2hr}
+DBA_peaks_genes_venn <- makeVennDiagram(list(GENES_unique, Gained_2hrs, Const_2hrs), NameOfPeaks=c("Genes", "AR_2hrs_Gained", "AR_2hrs_Const"),
+                                totalTest=100000, 
+                                fill=c("#FFC5D0", "#E2D4A8", "#A8E1BF"), # circle fill color
+                                col=c("#E16A86", "#AA9000", "#00AA5A"), #circle border color
+                                cat.col=c("#E16A86", "#AA9000", "#00AA5A"))
+```
+
+
+DHT 4hrs DBA Gained and Constitutive overlapping with genes:
+```{r, venn_genes_4hr}
+DBA_peaks_genes_venn <- makeVennDiagram(list(GENES_unique, Gained_4hrs, Const_4hrs), NameOfPeaks=c("Genes", "AR_4hrs_Gained", "AR_4hrs_Const"),
+                                totalTest=100000, 
+                                fill=c("#FFC5D0", "#E2D4A8", "#A8E1BF"), # circle fill color
+                                col=c("#E16A86", "#AA9000", "#00AA5A"), #circle border color
+                                cat.col=c("#E16A86", "#AA9000", "#00AA5A"))
+```
+
+
+DHT 16hrs DBA Gained and Constitutive overlapping with genes:
+```{r, venn_genes_16hr}
+DBA_peaks_genes_venn <- makeVennDiagram(list(GENES_unique, Gained_16hrs, Const_16hrs), NameOfPeaks=c("Genes", "AR_16hrs_Gained", "AR_16hrs_Const"),
+                                totalTest=100000, 
+                                fill=c("#FFC5D0", "#E2D4A8", "#A8E1BF"), # circle fill color
+                                col=c("#E16A86", "#AA9000", "#00AA5A"), #circle border color
+                                cat.col=c("#E16A86", "#AA9000", "#00AA5A"))
+```
+
+
+### make GRangeslist for visualisation
+```{r, GRangeslist, echo=TRUE, eval=TRUE}
+Gained_AR_grl <- GRangesList("Gained_05hrs"=Gained_05hrs, "Gained_2hrs"=Gained_2hrs, "Gained_4hrs"=Gained_4hrs, "Gained_16hrs"=Gained_16hrs)
+```
+
+### Visualise the proportions of peaks within each genomic feature
+```{r, vis, echo=FALSE, eval=TRUE}
+## check the genomic element distribution of the duplicates
+## the genomic element distribution will indicates the 
+## the correlation between duplicates.
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+genomicElementDistribution(Gained_AR_grl,
+                           TxDb = TxDb.Hsapiens.UCSC.hg38.knownGene,
+                           promoterRegion=c(upstream=2000, downstream=500),
+                           geneDownstream=c(upstream=0, downstream=2000))
+```
+
+### Check the genomic element distribution for the overlaps
+Genomic element distribution in gained peaks at 05hrs DHT:
+```{r, element_distribution_05hrs, echo=FALSE, eval=TRUE}
+## the genomic element distribution will indicates the 
+## the best methods for annotation.
+## The percentages in the legend show the percentage of peaks in 
+## each category.
+
+Gained_05hrs.out <- genomicElementDistribution(Gained_05hrs, 
+                                  TxDb = TxDb.Hsapiens.UCSC.hg38.knownGene,
+                                  promoterRegion=c(upstream=2000, downstream=500),
+                                  geneDownstream=c(upstream=0, downstream=2000),
+                                  promoterLevel=list(
+                                    # from 5' -> 3', fixed precedence 3' -> 5'
+                                    breaks = c(-2000, -1000, -500, 0, 500),
+                                    labels = c("upstream 1-2Kb", "upstream 0.5-1Kb", 
+                                               "upstream <500b", "TSS - 500b"),
+                                    colors = c("#FFE5CC", "#FFCA99", 
+                                               "#FFAD65", "#FF8E32")))
+
+write.table(Gained_05hrs.out$peaks, file="Gained_05hrs.out.bed", quote=F, sep="\t", row.names=F, col.names=F)
+```
+
+Genomic element distribution in gained peaks at 2hrs DHT:
+```{r, element_distribution_2hrs, echo=FALSE, eval=TRUE}
+## the genomic element distribution will indicates the 
+## the best methods for annotation.
+## The percentages in the legend show the percentage of peaks in 
+## each category.
+
+Gained_2hrs.out <- genomicElementDistribution(Gained_2hrs, 
+                                  TxDb = TxDb.Hsapiens.UCSC.hg38.knownGene,
+                                  promoterRegion=c(upstream=2000, downstream=500),
+                                  geneDownstream=c(upstream=0, downstream=2000),
+                                  promoterLevel=list(
+                                    # from 5' -> 3', fixed precedence 3' -> 5'
+                                    breaks = c(-2000, -1000, -500, 0, 500),
+                                    labels = c("upstream 1-2Kb", "upstream 0.5-1Kb", 
+                                               "upstream <500b", "TSS - 500b"),
+                                    colors = c("#FFE5CC", "#FFCA99", 
+                                               "#FFAD65", "#FF8E32")))
+
+write.table(Gained_2hrs.out$peaks, file="Gained_2hrs.out.bed", quote=F, sep="\t", row.names=F, col.names=F)
+```
+
+Genomic element distribution in gained peaks at 4hrs DHT:
+```{r, element_distribution_4hrs, echo=FALSE, eval=TRUE}
+## the genomic element distribution will indicates the 
+## the best methods for annotation.
+## The percentages in the legend show the percentage of peaks in 
+## each category.
+
+Gained_4hrs.out <- genomicElementDistribution(Gained_4hrs, 
+                                  TxDb = TxDb.Hsapiens.UCSC.hg38.knownGene,
+                                  promoterRegion=c(upstream=2000, downstream=500),
+                                  geneDownstream=c(upstream=0, downstream=2000),
+                                  promoterLevel=list(
+                                    # from 5' -> 3', fixed precedence 3' -> 5'
+                                    breaks = c(-2000, -1000, -500, 0, 500),
+                                    labels = c("upstream 1-2Kb", "upstream 0.5-1Kb", 
+                                               "upstream <500b", "TSS - 500b"),
+                                    colors = c("#FFE5CC", "#FFCA99", 
+                                               "#FFAD65", "#FF8E32")))
+
+write.table(Gained_4hrs.out$peaks, file="Gained_4hrs.out.bed", quote=F, sep="\t", row.names=F, col.names=F)
+```
+
+Genomic element distribution in gained peaks at 16hrs DHT:
+```{r, element_distribution_16hrs, echo=FALSE, eval=TRUE}
+## the genomic element distribution will indicates the 
+## the best methods for annotation.
+## The percentages in the legend show the percentage of peaks in 
+## each category.
+
+Gained_16hrs.out <- genomicElementDistribution(Gained_16hrs, 
+                                  TxDb = TxDb.Hsapiens.UCSC.hg38.knownGene,
+                                  promoterRegion=c(upstream=2000, downstream=500),
+                                  geneDownstream=c(upstream=0, downstream=2000),
+                                  promoterLevel=list(
+                                    # from 5' -> 3', fixed precedence 3' -> 5'
+                                    breaks = c(-2000, -1000, -500, 0, 500),
+                                    labels = c("upstream 1-2Kb", "upstream 0.5-1Kb", 
+                                               "upstream <500b", "TSS - 500b"),
+                                    colors = c("#FFE5CC", "#FFCA99", 
+                                               "#FFAD65", "#FF8E32")))
+
+write.table(Gained_16hrs.out$peaks, file="Gained_16hrs.out.bed", quote=F, sep="\t", row.names=F, col.names=F)
+```
+
+### Annotate peaks
+Gene annotation for DBA Gained AR peaks:
+```{r, anno_peaks_lost, message=FALSE, warning=FALSE}
+#As shown from the distribution of aggregated peak numbers around TSS and the distribution of peaks in different of 
+#chromosome regions, most of the peaks locate around TSS. Therefore, it is reasonable to use annotatePeakInBatch or 
+#annoPeaks to annotate the peaks to the promoter regions of Hg38 genes. Promoters can be specified with bindingRegion. 
+#For the following example, promoter region is defined as upstream 2000 and downstream 500 from TSS (bindingRegion=c(-2000, 500)).
+
+seqlevelsStyle(hg38annoData) <- "UCSC"
+
+Gained_05hrs_AR_Peaks.anno <- annotatePeakInBatch(Gained_05hrs, 
+                                         AnnotationData=hg38annoData, 
+                                         bindingRegion=c(-2000, 500),
+                                         output="overlapping",
+                                         maxgap = 1)
+Gained_2hrs_AR_Peaks.anno <- annotatePeakInBatch(Gained_2hrs, 
+                                       AnnotationData=hg38annoData, 
+                                       bindingRegion=c(-2000, 500),
+                                       output="overlapping",
+                                       maxgap = 1)
+Gained_4hrs_AR_Peaks.anno <- annotatePeakInBatch(Gained_4hrs, 
+                                       AnnotationData=hg38annoData, 
+                                       bindingRegion=c(-2000, 500),
+                                       output="overlapping",
+                                       maxgap = 1)
+Gained_16hrs_AR_Peaks.anno <- annotatePeakInBatch(Gained_16hrs, 
+                                       AnnotationData=hg38annoData, 
+                                       bindingRegion=c(-2000, 500),
+                                       output="overlapping",
+                                       maxgap = 1)
+```
+
+Write out annotated files:
+```{r, write_out_anno}
+library(org.Hs.eg.db)
+Gained_05hrs_AR.anno <- addGeneIDs(Gained_05hrs_AR_Peaks.anno, "org.Hs.eg.db", IDs2Add = "entrez_id")
+write.table(Gained_05hrs_AR.anno, file="Gained_05hrs_AR_Peaks_anno.bed", quote=F, sep="\t", row.names=F, col.names=T)
+
+Gained_2hrs_AR.anno <- addGeneIDs(Gained_2hrs_AR_Peaks.anno, "org.Hs.eg.db", IDs2Add = "entrez_id")
+write.table(Gained_2hrs_AR.anno, file="Gained_2hrs_AR_Peaks_anno.bed", quote=F, sep="\t", row.names=F, col.names=T)
+
+Gained_4hrs_AR.anno <- addGeneIDs(Gained_4hrs_AR_Peaks.anno, "org.Hs.eg.db", IDs2Add = "entrez_id")
+write.table(Gained_4hrs_AR.anno, file="Gained_4hrs_AR_Peaks_anno.bed", quote=F, sep="\t", row.names=F, col.names=T)
+
+Gained_16hrs_AR.anno <- addGeneIDs(Gained_16hrs_AR_Peaks.anno, "org.Hs.eg.db", IDs2Add = "entrez_id")
+write.table(Gained_16hrs_AR.anno, file="Gained_16hrs_AR_Peaks_anno.bed", quote=F, sep="\t", row.names=F, col.names=T)
+```
+
+***
+
+#### save R data
+```{r, save_data, echo=TRUE, eval=FALSE}
+save.image("/Volumes/griw/Cancer-Epigenetics/Projects/LNCaP_VCaP_DHT_Hi-C/Elyssa_2021_analysis_and_integration/AR_ChIP_Analysis.RData")
+```
+
+*** 
+
+# Version Information
+```{r sessionInfo}
+sessionInfo()
+```
