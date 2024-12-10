@@ -6,5 +6,3 @@
 Pipeline: nf-core/cutandrun
 Avaiable at: https://nf-co.re/cutandrun/3.2.2/
 Repo: https://github.com/nf-core/cutandrun/tree/3.2.2
-
-2. Scripts to used to produce publication Figures.
