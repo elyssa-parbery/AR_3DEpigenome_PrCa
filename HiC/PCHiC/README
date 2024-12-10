@@ -1,1 +1,31 @@
+# 1) Hicup - fastq to bamfiles
+##	
+
+# 1) a. On Target Rates QC - hicup.bam to CHiCAGO ready data 
+##	Scripts called:
+##		- run_OnTargetRates.sh
+##		- report_on_target_rates.R
+
+# 2) bam2chicago - hicup.bam to CHiCAGO ready data (.chinput files) 
+#				   (requires design files; made with script : run_make_design_files_3kb.sh)
+##	Scripts called:
+##		- run_bam2chic_modEC.sh
+##		- bam2chicago_modEC.sh
+
+# 3) run CHiCAGO - CHiCAGO ready data to CHiCAGO Interaction Scores (chicago.RDa files)
+#					(requires design files)
+##	Scripts called:
+##		- run_runChicago_3kb_EC.sh
+##		- runChicago_2020_EC.R
+##		- and Pooled variation
+
+# 4) Make peak matrix - stand alone script that turns CHiCAGO interaction scores per sample into a count matrix type shape for downstream analysis
+##	Scripts called:
+##		- Get_peakMatrix_LNCaP_Both_DHT_SubSam.sh
+##		- makePeakMatrix_EC.R
+
+# 5) Chicdiff for differential analysis which integrates with CHiCAGO data
+##
+
+
 
