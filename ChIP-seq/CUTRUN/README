@@ -1,1 +1,10 @@
+# CUT&RUN Data Generation Scripts:
 
+1. Processing from raw fastq files was performed using nfcore: 
+"Ewels, P.A., Peltzer, A., Fillinger, S. et al. The nf-core framework for community-curated bioinformatics pipelines. Nat Biotechnol 38, 276–278 (2020). https://doi.org/10.1038/s41587-020-0439-x"
+
+Pipeline: nf-core/cutandrun
+Avaiable at: https://nf-co.re/cutandrun/3.2.2/
+Repo: https://github.com/nf-core/cutandrun/tree/3.2.2
+
+2. Scripts to used to produce publication Figures.
