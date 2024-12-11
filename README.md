@@ -5,7 +5,6 @@
 Organised into scripts for:
 
 Hi-C :
-Genome-wide and
 Promoter capture (PCHiC)
 
 RNA-seq:
